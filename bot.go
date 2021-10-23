@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 type SkibidConfig struct {
@@ -126,6 +127,8 @@ func loadSound(soundName *string) ([][]byte, error) {
 // was received.
 func playSound(s *discordgo.Session, guildID, channelID, soundName string) (err error) {
 
+	threadId := time.Now().Nanosecond()
+
 	// Join the provided voice channel.
 	// situation when bot already in channel is handled well
 	vc, err := s.ChannelVoiceJoin(guildID, channelID, false, true)
@@ -148,10 +151,15 @@ func playSound(s *discordgo.Session, guildID, channelID, soundName string) (err 
 		return err
 	}
 
-	// Start speaking.
+	// Try to acquire lock to play audio
+	log.Printf("[%d] Trying to acquire audio state lock for %s...", threadId, soundName)
 	audioStateLock.Lock()
+	log.Printf("[%d] Acquired audio state lock for %s", threadId, soundName)
 	defer audioStateLock.Unlock()
+
+	// Start speaking and defer end speaking
 	_ = vc.Speaking(true)
+	defer vc.Speaking(false)
 
 	// Send the buffer data.
 	playPeriod := 0
@@ -164,29 +172,38 @@ func playSound(s *discordgo.Session, guildID, channelID, soundName string) (err 
 		// check for mutex
 		if playPeriod >= EnvCfg.GracePlayPeriod &&
 			audioStateLock.UnlockRequested {
-			log.Printf("Audio interrupted by incoming request: %s", soundName)
-			break
+			log.Printf("[%d] Audio interrupted by incoming request: %s", threadId, soundName)
+			log.Printf("play period interrupted: %d", playPeriod)
+			return nil
 		}
 
 		vc.OpusSend <- buff
 		playPeriod += 1
 
 	}
-	log.Printf("Sent whole audio to discord voice: %s", soundName)
 
-	// Stop speaking
-	_ = vc.Speaking(false)
-
+	log.Printf("[%d] Sent whole audio to discord voice: %s", threadId, soundName)
+	log.Printf("play period whole: %d", playPeriod)
 	return nil
+
 }
 
-func soundNameForMessage(message *discordgo.MessageCreate) (res string, present bool) {
+func soundNamesForMessage(message *discordgo.MessageCreate) (res []string, present bool) {
+
 	if strings.Count(message.Content, ":") < 2 {
-		return "", false
+		return []string{}, false
 	}
-	emojiCode := strings.Split(message.Content, ":")[1]
-	res, present = EnvCfg.SoundMaps[emojiCode]
+
+	res = make([]string, 0)
+	for _, emojiCode := range strings.Split(message.Content, ":") {
+		if val, exists := EnvCfg.SoundMaps[emojiCode]; exists {
+			res = append(res, val)
+		}
+	}
+
+	present = len(res) > 0
 	return
+
 }
 
 // event handlers
@@ -204,15 +221,19 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	log.Printf("Got message: %s", m.Message.Content)
 
 	// check if message is in sound map
-	soundName, present := soundNameForMessage(m)
+	soundNames, present := soundNamesForMessage(m)
 	if !(present) {
 		return
 	}
 
-	err := playSound(s, EnvCfg.GuildId, EnvCfg.VoiceChanId, soundName)
-	if err != nil {
-		log.Printf("Could not play sound %s: %s", soundName, err)
-		return
+	for _, soundName := range soundNames {
+		_soundName := soundName
+		go func() {
+			err := playSound(s, EnvCfg.GuildId, EnvCfg.VoiceChanId, _soundName)
+			if err != nil {
+				log.Printf("Could not play sound %s: %s", _soundName, err)
+			}
+		}()
 	}
 
 	/*
