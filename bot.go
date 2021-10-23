@@ -132,7 +132,7 @@ func loadSound(soundName *string) ([][]byte, error) {
 // playSound plays the current buffer to the provided channel.
 // should interrupt sound currently playing if another request
 // was received.
-func playSound(s *discordgo.Session, guildID, channelID, soundName string) (err error) {
+func playSound(s *discordgo.Session, guildID, channelID, soundName string, gracePlayPeriod int) (err error) {
 
 	threadId := time.Now().Nanosecond()
 
@@ -177,7 +177,7 @@ func playSound(s *discordgo.Session, guildID, channelID, soundName string) (err 
 		}
 
 		// check for mutex
-		if playPeriod >= EnvCfg.GracePlayPeriod &&
+		if playPeriod >= gracePlayPeriod &&
 			audioStateLock.UnlockRequested {
 			log.Printf("[%d] Audio interrupted by incoming request: %s", threadId, soundName)
 			log.Printf("play period interrupted: %d", playPeriod)
@@ -234,13 +234,17 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	for _, soundName := range soundNames {
+
 		_soundName := soundName
+		gracePlayPeriod := EnvCfg.GracePlayPeriod
+
 		go func() {
-			err := playSound(s, EnvCfg.GuildId, EnvCfg.VoiceChanId, _soundName)
+			err := playSound(s, EnvCfg.GuildId, EnvCfg.VoiceChanId, _soundName, gracePlayPeriod)
 			if err != nil {
 				log.Printf("Could not play sound %s: %s", _soundName, err)
 			}
 		}()
+
 	}
 
 	/*
