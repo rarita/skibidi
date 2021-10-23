@@ -152,17 +152,17 @@ func playSound(s *discordgo.Session, guildID, channelID, soundName string) (err 
 		}
 	*/
 
-	sound, err := loadSound(&soundName)
-	if err != nil {
-		log.Printf("Could not load sound %s", soundName)
-		return err
-	}
-
 	// Try to acquire lock to play audio
 	log.Printf("[%d] Trying to acquire audio state lock for %s...", threadId, soundName)
 	audioStateLock.Lock()
 	log.Printf("[%d] Acquired audio state lock for %s", threadId, soundName)
 	defer audioStateLock.Unlock()
+
+	sound, err := loadSound(&soundName)
+	if err != nil {
+		log.Printf("Could not load sound %s", soundName)
+		return err
+	}
 
 	// Start speaking and defer end speaking
 	_ = vc.Speaking(true)
