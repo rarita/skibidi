@@ -27,12 +27,19 @@ type SkibidConfig struct {
 type AudioStateLock struct {
 	UnlockRequested bool
 	internalMutex   sync.Mutex
+	flagMutex       sync.Mutex // todo consider RWMutex for better performance
 }
 
 func (l *AudioStateLock) Lock() {
+
+	l.flagMutex.Lock()
 	l.UnlockRequested = true
+
 	l.internalMutex.Lock()
+
 	l.UnlockRequested = false
+	l.flagMutex.Unlock()
+
 }
 
 func (l *AudioStateLock) Unlock() {
