@@ -10,21 +10,41 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 )
 
 type SkibidConfig struct {
-	Token string
+	Token           string
 	AllowedChannels []string
-	SoundMaps map[string] string
-	GuildId string
-	VoiceChanId string
+	SoundMaps       map[string]string
+	GuildId         string
+	VoiceChanId     string
+	GracePlayPeriod int
+}
+
+type AudioStateLock struct {
+	UnlockRequested bool
+	internalMutex   sync.Mutex
+}
+
+func (l *AudioStateLock) Lock() {
+	l.UnlockRequested = true
+	l.internalMutex.Lock()
+	l.UnlockRequested = false
+}
+
+func (l *AudioStateLock) Unlock() {
+	l.internalMutex.Unlock()
 }
 
 const CfgPrefix = "skibid"
 const DataPathPrefix = "data/"
+
 var EnvCfg SkibidConfig
-var soundBoard = make(map[string] [][]byte, 8)
+var soundBoard = make(map[string][][]byte, 8)
+
+var audioStateLock = AudioStateLock{}
 
 // misc. utils
 func _sliceContains(needle *string, haystack *[]string) bool {
@@ -102,6 +122,8 @@ func loadSound(soundName *string) ([][]byte, error) {
 }
 
 // playSound plays the current buffer to the provided channel.
+// should interrupt sound currently playing if another request
+// was received.
 func playSound(s *discordgo.Session, guildID, channelID, soundName string) (err error) {
 
 	// Join the provided voice channel.
@@ -111,14 +133,14 @@ func playSound(s *discordgo.Session, guildID, channelID, soundName string) (err 
 		return err
 	}
 	/*
-	if err != nil {
-		if _, ok := s.VoiceConnections[guildID]; ok {
-			vc = s.VoiceConnections[guildID]
-		} else {
-			return err
+		if err != nil {
+			if _, ok := s.VoiceConnections[guildID]; ok {
+				vc = s.VoiceConnections[guildID]
+			} else {
+				return err
+			}
 		}
-	}
-	 */
+	*/
 
 	sound, err := loadSound(&soundName)
 	if err != nil {
@@ -127,15 +149,28 @@ func playSound(s *discordgo.Session, guildID, channelID, soundName string) (err 
 	}
 
 	// Start speaking.
+	audioStateLock.Lock()
+	defer audioStateLock.Unlock()
 	_ = vc.Speaking(true)
 
 	// Send the buffer data.
+	playPeriod := 0
 	for _, buff := range sound {
+
 		if len(buff) == 0 {
 			continue
 		}
-		log.Printf("Sent %d bytes to discord voice", len(buff))
+
+		// check for mutex
+		if playPeriod >= EnvCfg.GracePlayPeriod &&
+			audioStateLock.UnlockRequested {
+			log.Printf("Audio interrupted by incoming request: %s", soundName)
+			break
+		}
+
 		vc.OpusSend <- buff
+		playPeriod += 1
+
 	}
 	log.Printf("Sent whole audio to discord voice: %s", soundName)
 
@@ -181,15 +216,13 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	/*
-	_, err = s.ChannelMessageSend(m.ChannelID, m.Message.Content)
-	if err != nil {
-		log.Printf("Could not send message %s to channel %s", m.Message.Content, m.ChannelID)
-	}
-	 */
+		_, err = s.ChannelMessageSend(m.ChannelID, m.Message.Content)
+		if err != nil {
+			log.Printf("Could not send message %s to channel %s", m.Message.Content, m.ChannelID)
+		}
+	*/
 
 }
-
-
 
 func main() {
 
