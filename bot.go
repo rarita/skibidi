@@ -214,6 +214,11 @@ func soundNamesForMessage(message *discordgo.MessageCreate) (res []string, prese
 
 }
 
+func soundForEmoji(r *discordgo.MessageReactionAdd) (sound string, present bool) {
+	sound, present = EnvCfg.SoundMaps[r.Emoji.Name]
+	return
+}
+
 // event handlers
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
@@ -257,6 +262,23 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 }
 
+func messageReact(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
+
+	reactName := r.MessageReaction.Emoji.Name
+	log.Printf("got reaction: %s", reactName)
+
+	soundName, present := soundForEmoji(r)
+	if !present {
+		return
+	}
+
+	err := playSound(s, r.GuildID, EnvCfg.VoiceChanId, soundName, EnvCfg.GracePlayPeriod)
+	if err != nil {
+		log.Printf("Error playing sound: %s", err)
+	}
+
+}
+
 func main() {
 
 	// load config from env
@@ -272,7 +294,11 @@ func main() {
 
 	log.Printf("Bot was initialized! Setting handler hooks up...")
 	discord.AddHandler(messageCreate)
-	discord.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsGuildVoiceStates
+	discord.AddHandler(messageReact)
+	discord.Identify.Intents = discordgo.IntentsGuilds |
+		discordgo.IntentsGuildMessages |
+		discordgo.IntentsGuildVoiceStates |
+		discordgo.IntentsGuildMessageReactions
 
 	log.Printf("Starting up skibidi bot...")
 	err = discord.Open()
@@ -282,8 +308,11 @@ func main() {
 
 	// Wait here until CTRL-C or other term signal is received.
 	log.Println("Bot is now running.  Press CTRL-C to exit.")
+
 	// todo fix
 	_, _ = discord.ChannelVoiceJoin(EnvCfg.GuildId, EnvCfg.VoiceChanId, false, true)
+	log.Printf("Joined voice channel successfully: %s", EnvCfg.VoiceChanId)
+
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
 	<-sc
