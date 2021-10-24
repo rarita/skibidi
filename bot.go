@@ -264,7 +264,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Could not read environment configs: %s\n", err)
 	}
-	log.Printf("configvars: %s", EnvCfg)
 
 	discord, err := discordgo.New("Bot " + EnvCfg.Token)
 	if err != nil {
