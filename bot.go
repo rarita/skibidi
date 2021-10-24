@@ -87,7 +87,7 @@ func loadSound(soundName *string) ([][]byte, error) {
 	var opusLen int16
 
 	// init array for key
-	soundBoard[*soundName] = make([][]byte, 127)
+	soundBoard[*soundName] = make([][]byte, 0)
 	for {
 		// Read opus frame length from dca file.
 		err = binary.Read(file, binary.LittleEndian, &opusLen)
@@ -134,6 +134,7 @@ func loadSound(soundName *string) ([][]byte, error) {
 // was received.
 func playSound(s *discordgo.Session, guildID, channelID, soundName string, gracePlayPeriod int) (err error) {
 
+	// does not work as intended
 	threadId := time.Now().Nanosecond()
 
 	// Join the provided voice channel.
@@ -172,7 +173,7 @@ func playSound(s *discordgo.Session, guildID, channelID, soundName string, grace
 	playPeriod := 0
 	for _, buff := range sound {
 
-		if len(buff) == 0 {
+		if len(buff) < 15 {
 			continue
 		}
 
